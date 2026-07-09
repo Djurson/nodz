@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Engineering context for this repo. `project.md` is the original product vision doc, read it for the "why." This file is ground truth for "what's actually built" and "how to work in this codebase," and takes precedence over `project.md` wherever they conflict (the vision doc predates most of the implementation and is not kept in sync).
+Engineering context for this repo. This file is ground truth for "what's actually built" and "how to work in this codebase".
 
 ## What this is
 
@@ -77,9 +77,6 @@ Many phosphor icon exports are deprecated legacy names (e.g. `Cursor`, `Graph`, 
 
 - **`force-graph`'s `.d.ts` models the default export as a class**, but the actual runtime (Kapsule-based) is a double-invoked factory: `ForceGraph()(el)`. Calling it per the types (`new ForceGraph(el)`) doesn't match runtime behavior. `graph-canvas.tsx` casts the import through a manually-recovered generic factory type, see the comment there before touching it.
 - **force-graph node click hit-testing is frame-async**, not a synchronous hit-test at click time, it relies on `hoverObj` set during the next animation frame after `mousemove`. Synthetic/programmatic click sequences that move-then-immediately-click can miss. Matters for automated UI testing of the graph, not for real users.
-- **Wails frameless window replaced with macOS hidden-inset titlebar** (`mac.TitleBarHiddenInset()` in `main.go`), keeps native traffic-light buttons (move/min/max/close work for free) while hiding the OS title bar chrome that clashed with the theme. The traffic lights land in the window's top-left corner, which is inside the **sidebar**, not the header, `app-sidebar.tsx` has a dedicated drag strip (`h-7` div with `--wails-draggable: drag`) reserving that space. If the sidebar layout changes, re-check this doesn't get covered.
-- **`tsconfig.node.json` needs explicit `"types": ["node"]` and `"lib": ["ESNext"]`**, without them `vite.config.ts` fails to typecheck (`@types/node` types for Buffer/node:fs/etc. don't resolve, and `Symbol.asyncDispose` needs the newer lib).
-- Use `moduleResolution: "Bundler"` in both tsconfigs (not `"Node"`, deprecated as of TS 6, will hard-error in TS 7). Same for `esModuleInterop`, don't set it to `false` explicitly (also deprecated).
 
 ## Commands
 
