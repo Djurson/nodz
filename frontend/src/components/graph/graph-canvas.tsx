@@ -1,20 +1,24 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import ForceGraphCtor, { type ForceGraphGeneric, type NodeObject } from "force-graph";
+import ForceGraphCtor from "force-graph";
+import type { ForceGraphGeneric, NodeObject } from "force-graph";
 import type { RepoEdge, RepoNode } from "@/types/repo-graph";
-import { GROUP_COLOR_VAR, computeDegree, findCircularPairs } from "@/lib/repo-graph";
+import { computeDegree, findCircularPairs } from "@/lib/repo-graph";
+import { LABEL_SIZE_SCALE } from "@/types/graph-settings";
+import type { GraphSettings } from "@/types/graph-settings";
+import { drawNodeCard, drawNodeHitArea } from "./graph-node";
+import type { ResolveColor, FgNode } from "./graph-node";
 
 interface GraphCanvasProps {
   nodes: RepoNode[];
   edges: RepoEdge[];
   selectedId: string | null;
   onSelectNode: (node: RepoNode | null) => void;
+  settings: GraphSettings;
 }
 
 export interface GraphCanvasHandle {
   fitView: () => void;
 }
-
-type FgNode = NodeObject & RepoNode & { circular?: boolean };
 
 // force-graph's .d.ts models the export as a class, but the Kapsule runtime is
 // actually a double-invoked factory: ForceGraph()(el). Recover proper generics
@@ -23,57 +27,118 @@ type FgGraph<N extends NodeObject> = ForceGraphGeneric<FgGraph<N>, N>;
 type FgFactory = <N extends NodeObject>() => (el: HTMLElement) => FgGraph<N>;
 const createForceGraph = ForceGraphCtor as unknown as FgFactory;
 
-// Card geometry, in graph units (scales with zoom automatically since the
-// canvas context is already zoom-transformed when these draw functions run).
-const FONT_SIZE = 3.4;
-const CARD_HEIGHT = 8.6;
-const CARD_RADIUS = 2.2;
-const PAD_X = 3;
-const DOT_R = 1.5;
-const GAP_DOT_TEXT = 2.2;
-const GAP_TEXT_BADGE = 2.8;
-const GAP_BADGE_CHEVRON = 1.6;
-const CHEVRON_W = 3.4;
-const CHAR_WIDTH = FONT_SIZE * 0.56;
-const BADGE_HEIGHT = 4.6;
+// The dot grid is a fixed-size layer (see `.dot-grid` in style.css, 24px tiles) that
+// we pan/zoom via CSS transform instead of animating background-size/-position:
+// transforms are GPU-composited with no repaint, so they stay smooth at any zoom
+// speed. Animating background-size/-position instead re-rasterizes the tiled gradient
+// on every change, and since a tile's screen position is (distance from origin × tile
+// size), even a 1px size change shifts far-out tiles by many pixels, that's what reads
+// as jitter. DOT_GRID_BOX must be a multiple of 24 so `.dot-grid`'s centered pattern
+// still lands on a tile boundary at the box's own center (see syncDotGridTransform).
+const DOT_GRID_BOX = 6000;
 
-function badgeWidth(degree: number) {
-  return Math.max(6.5, 2.4 + String(degree).length * 2.4);
+// Force-layout tuning for a ~36-node/56-edge graph: weaker repulsion and a
+// shorter link distance than the library defaults, since the nodes are
+// compact cards rather than points, the defaults sprawl the graph far wider
+// than it needs to be to stay legible. The "Layout spread" setting (0–1) lerps
+// between these ranges; 0.5 (the default) lands on the tuned values above.
+const CHARGE_STRENGTH_RANGE: [number, number] = [-60, -180];
+const LINK_DISTANCE_RANGE: [number, number] = [40, 90];
+const CHARGE_DISTANCE_MAX = 300;
+const WARMUP_TICKS = 80;
+const COOLDOWN_TICKS = 80;
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 8;
+const ZOOM_FIT_DURATION_MS = 400;
+const ZOOM_FIT_PADDING_PX = 60;
+
+// force-graph's onZoom payload is built internally as `{...transform, ...centerAt()}` —
+// centerAt()'s x/y (the graph-space point at the viewport center) are spread second and
+// overwrite the transform's real x/y (the screen-space translate), so what we receive as
+// `centerX`/`centerY` here is actually graph-space, not the translate. Reconstruct the true
+// screen-space offset from it: the viewport center (viewportSize / 2) equals
+// `translate + k * graphCenter`, so `translate = viewportSize / 2 - k * graphCenter`.
+//
+// That offset is where graph-origin (0, 0) should land on screen. The dot-grid box is
+// positioned (see JSX) so its own center, which is also its transform-origin, the CSS
+// default, sits at the viewport's top-left corner when untransformed. So applying that
+// same offset as a translate, plus scale(k) around that center, moves and scales the
+// pattern exactly like force-graph moves and scales graph coordinates onto the canvas.
+function syncDotGridTransform(dotGridEl: HTMLElement, viewportEl: HTMLElement, k: number, centerX: number, centerY: number) {
+  const offsetX = viewportEl.clientWidth / 2 - centerX * k;
+  const offsetY = viewportEl.clientHeight / 2 - centerY * k;
+  dotGridEl.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${k})`;
 }
 
-function cardWidth(n: FgNode) {
-  const textWidth = n.label.length * CHAR_WIDTH;
-  return PAD_X * 2 + DOT_R * 2 + GAP_DOT_TEXT + textWidth + GAP_TEXT_BADGE + badgeWidth(n.degree ?? 0) + GAP_BADGE_CHEVRON + CHEVRON_W;
+function lerp(min: number, max: number, t: number) {
+  return min + (max - min) * t;
 }
 
-export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function GraphCanvas({ nodes, edges, selectedId, onSelectNode }, ref) {
+// force-graph replaces link.source/target (initially the plain string ids we pass in)
+// with references to the actual resolved node objects once the simulation starts, so
+// an edge endpoint can be either shape depending on timing, normalize both to an id.
+type FgLink = RepoEdge & { source: string | FgNode; target: string | FgNode };
+function linkEndpointId(end: string | FgNode): string {
+  return typeof end === "string" ? end : end.id;
+}
+
+type LinkHighlight = "outgoing" | "incoming" | null;
+function linkHighlight(l: FgLink, selectedId: string | null): LinkHighlight {
+  if (!selectedId) return null;
+  if (linkEndpointId(l.source) === selectedId) return "outgoing";
+  if (linkEndpointId(l.target) === selectedId) return "incoming";
+  return null;
+}
+
+export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function GraphCanvas({ nodes, edges, selectedId, onSelectNode, settings }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const dotGridRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<FgGraph<FgNode> | null>(null);
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
   const onSelectNodeRef = useRef(onSelectNode);
   onSelectNodeRef.current = onSelectNode;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   useImperativeHandle(ref, () => ({
-    fitView: () => graphRef.current?.zoomToFit(400, 60),
+    fitView: () => graphRef.current?.zoomToFit(ZOOM_FIT_DURATION_MS, ZOOM_FIT_PADDING_PX),
   }));
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current || !dotGridRef.current) return;
     const el = containerRef.current;
+    const dotGridEl = dotGridRef.current;
 
     // Read from the container itself, not document.documentElement: the
     // `.dark` class lives on an inner wrapper div, not <html>.
     const style = getComputedStyle(el);
-    const resolve = (v: string) => (v.startsWith("var(") ? style.getPropertyValue(v.slice(4, -1)).trim() : v);
+    const resolve: ResolveColor = (v) => (v.startsWith("var(") ? style.getPropertyValue(v.slice(4, -1)).trim() : v);
+
+    // A single scroll/pinch gesture can fire onZoom many times per animation frame —
+    // coalesce to at most one transform write per frame.
+    let queuedZoomFrame = 0;
+    const queueDotGridSync = (k: number, centerX: number, centerY: number) => {
+      cancelAnimationFrame(queuedZoomFrame);
+      queuedZoomFrame = requestAnimationFrame(() => syncDotGridTransform(dotGridEl, el, k, centerX, centerY));
+    };
 
     const graph = createForceGraph<FgNode>()(el)
       .backgroundColor("rgba(0,0,0,0)")
       .nodeId("id")
       .nodeLabel((n) => `${n.path}  ·  ${n.loc} loc  ·  degree ${n.degree}`)
-      .linkColor(() => resolve("var(--border)"))
-      .linkWidth((l) => ((l as unknown as RepoEdge).kind === "call" ? 1.5 : 1))
+      .linkColor((l) => {
+        const highlight = linkHighlight(l as unknown as FgLink, selectedIdRef.current);
+        if (highlight === "outgoing") return resolve("var(--chart-1)");
+        if (highlight === "incoming") return resolve("var(--chart-2)");
+        return resolve("var(--border)");
+      })
+      .linkWidth((l) => {
+        const base = (l as unknown as RepoEdge).kind === "call" ? 1.5 : 1;
+        return linkHighlight(l as unknown as FgLink, selectedIdRef.current) ? base + 1 : base;
+      })
       .linkLineDash((l) => ((l as unknown as RepoEdge).kind === "class" ? [3, 2] : null))
+      .linkVisibility((l) => settingsRef.current.visibleEdgeKinds[(l as unknown as RepoEdge).kind])
       .linkDirectionalArrowLength(3.5)
       .linkDirectionalArrowRelPos(1)
       .linkDirectionalParticles((l) => ((l as unknown as RepoEdge).kind === "call" ? 1 : 0))
@@ -81,83 +146,21 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
       .linkDirectionalParticleColor(() => resolve("var(--primary)"))
       .onNodeClick((n) => onSelectNodeRef.current(n))
       .onBackgroundClick(() => onSelectNodeRef.current(null))
+      // Only show the pointer cursor over an actual node, otherwise force-graph's
+      // internal canvas gets a `.clickable` class (cursor: pointer) any time
+      // onBackgroundClick is set, which would stomp the grab cursor everywhere.
+      .showPointerCursor((n) => n != null)
+      .onZoom(({ k, x: centerX, y: centerY }) => queueDotGridSync(k, centerX, centerY))
+      .minZoom(MIN_ZOOM)
+      .maxZoom(MAX_ZOOM)
       .nodeCanvasObjectMode(() => "replace")
-      .nodeCanvasObject((n, ctx) => {
-        if (n.x === undefined || n.y === undefined) return;
-        const w = cardWidth(n);
-        const h = CARD_HEIGHT;
-        const x = n.x - w / 2;
-        const y = n.y - h / 2;
-        const isSelected = n.id === selectedIdRef.current;
-        const dotColor = resolve(n.circular ? "var(--chart-4)" : GROUP_COLOR_VAR[n.group]);
+      .nodeCanvasObject((n, ctx) => drawNodeCard(ctx, n, n.id === selectedIdRef.current, resolve, LABEL_SIZE_SCALE[settingsRef.current.labelSize]))
+      .nodePointerAreaPaint((n, color, ctx) => drawNodeHitArea(ctx, n, color, LABEL_SIZE_SCALE[settingsRef.current.labelSize]))
+      .warmupTicks(WARMUP_TICKS)
+      .cooldownTicks(COOLDOWN_TICKS)
+      .onEngineStop(() => graph.zoomToFit(ZOOM_FIT_DURATION_MS, ZOOM_FIT_PADDING_PX));
 
-        ctx.beginPath();
-        ctx.roundRect(x, y, w, h, CARD_RADIUS);
-        ctx.fillStyle = resolve("var(--card)");
-        ctx.fill();
-        if (isSelected) {
-          ctx.save();
-          ctx.shadowColor = resolve("var(--primary)");
-          ctx.shadowBlur = 6;
-          ctx.lineWidth = 0.7;
-          ctx.strokeStyle = resolve("var(--primary)");
-          ctx.stroke();
-          ctx.restore();
-        } else {
-          ctx.lineWidth = 0.35;
-          ctx.strokeStyle = resolve("var(--border)");
-          ctx.stroke();
-        }
-
-        ctx.beginPath();
-        ctx.arc(x + PAD_X + DOT_R, n.y, DOT_R, 0, 2 * Math.PI);
-        ctx.fillStyle = dotColor;
-        ctx.fill();
-
-        ctx.font = `${FONT_SIZE}px 'Geist Variable', sans-serif`;
-        ctx.textAlign = "left";
-        ctx.textBaseline = "middle";
-        ctx.fillStyle = resolve("var(--card-foreground)");
-        ctx.fillText(n.label, x + PAD_X + DOT_R * 2 + GAP_DOT_TEXT, n.y);
-
-        const degree = n.degree ?? 0;
-        const bw = badgeWidth(degree);
-        const bx = x + w - PAD_X - CHEVRON_W - GAP_BADGE_CHEVRON - bw;
-        ctx.beginPath();
-        ctx.roundRect(bx, n.y - BADGE_HEIGHT / 2, bw, BADGE_HEIGHT, BADGE_HEIGHT / 2);
-        ctx.fillStyle = resolve("var(--secondary)");
-        ctx.fill();
-        ctx.font = `${FONT_SIZE * 0.72}px 'JetBrains Mono', monospace`;
-        ctx.textAlign = "center";
-        ctx.fillStyle = resolve("var(--muted-foreground)");
-        ctx.fillText(String(degree), bx + bw / 2, n.y + 0.1);
-
-        ctx.strokeStyle = resolve("var(--muted-foreground)");
-        ctx.lineWidth = 0.5;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        const cx = x + w - PAD_X - CHEVRON_W / 2;
-        ctx.beginPath();
-        ctx.moveTo(cx - 1.3, n.y - 0.9);
-        ctx.lineTo(cx, n.y + 0.9);
-        ctx.lineTo(cx + 1.3, n.y - 0.9);
-        ctx.stroke();
-      })
-      .nodePointerAreaPaint((n, color, ctx) => {
-        if (n.x === undefined || n.y === undefined) return;
-        const w = cardWidth(n);
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.roundRect(n.x - w / 2, n.y - CARD_HEIGHT / 2, w, CARD_HEIGHT, CARD_RADIUS);
-        ctx.fill();
-      })
-      .cooldownTicks(80)
-      .onEngineStop(() => graph.zoomToFit(400, 60));
-
-    const chargeForce = graph.d3Force("charge");
-    chargeForce?.strength?.(-260);
-    const linkForce = graph.d3Force("link");
-    linkForce?.distance?.(95);
+    graph.d3Force("charge")?.distanceMax?.(CHARGE_DISTANCE_MAX);
 
     graphRef.current = graph;
 
@@ -166,12 +169,38 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     const observer = new ResizeObserver(resize);
     observer.observe(el);
 
+    // force-graph doesn't track a "panning the background" state for us (it only
+    // toggles its own cursor classes for node drags), so swap the cursor directly
+    // on pointer down/up. Listening on window for pointerup catches releases that
+    // happen after the cursor has left the canvas mid-drag.
+    const setGrabbing = (grabbing: boolean) => {
+      el.classList.toggle("cursor-grab", !grabbing);
+      el.classList.toggle("cursor-grabbing", grabbing);
+    };
+    const onPointerDown = () => setGrabbing(true);
+    const onPointerUp = () => setGrabbing(false);
+    el.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointerup", onPointerUp);
+
     return () => {
       observer.disconnect();
+      cancelAnimationFrame(queuedZoomFrame);
+      el.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointerup", onPointerUp);
       graph._destructor();
       graphRef.current = null;
     };
   }, []);
+
+  // Runs before the graphData effect below (declaration order) so the very first
+  // warmup tick already uses these forces, not the range's midpoint followed by a jump.
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph) return;
+    graph.d3Force("charge")?.strength?.(lerp(...CHARGE_STRENGTH_RANGE, settings.spread));
+    graph.d3Force("link")?.distance?.(lerp(...LINK_DISTANCE_RANGE, settings.spread));
+    graph.d3ReheatSimulation();
+  }, [settings.spread]);
 
   useEffect(() => {
     const graph = graphRef.current;
@@ -186,5 +215,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(funct
     graph.graphData({ nodes: graphNodes, links: edges.map((e) => ({ ...e })) });
   }, [nodes, edges]);
 
-  return <div ref={containerRef} className="h-full w-full" />;
+  return (
+    <div className="relative h-full w-full overflow-hidden">
+      <div ref={dotGridRef} className="dot-grid pointer-events-none absolute" style={{ width: DOT_GRID_BOX, height: DOT_GRID_BOX, left: -DOT_GRID_BOX / 2, top: -DOT_GRID_BOX / 2 }} />
+      <div ref={containerRef} className="absolute inset-0 cursor-grab" />
+    </div>
+  );
 });

@@ -1,30 +1,30 @@
 import { ChartLineUpIcon, ClockCounterClockwiseIcon, GitBranchIcon, GraphIcon, QuestionIcon, SlidersIcon, StackIcon } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
-import type { CSSProperties } from "react";
 import { cn } from "@/lib/utils";
+import { useIsMac } from "@/hooks/use-platform";
 import type { AppView } from "@/App";
 
 const NAV_ITEMS: { label: string; icon: Icon; view: AppView }[] = [
-  { label: "Graph", icon: GraphIcon, view: "graph" },
+  { label: "Visualize", icon: GraphIcon, view: "visualize" },
   { label: "History", icon: ClockCounterClockwiseIcon, view: "history" },
 ];
 
 const INERT_NAV_ITEMS: { label: string; icon: Icon }[] = [
   { label: "Insights", icon: ChartLineUpIcon },
   { label: "Structure", icon: StackIcon },
-  { label: "Settings", icon: SlidersIcon },
 ];
 
 interface AppSidebarProps {
   view: AppView;
   onViewChange: (view: AppView) => void;
+  onOpenSettings: () => void;
 }
 
-export function AppSidebar({ view, onViewChange }: AppSidebarProps) {
+export function AppSidebar({ view, onViewChange, onOpenSettings }: AppSidebarProps) {
+  const isMac = useIsMac();
+
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3 pb-4">
-      {/* Reserves space for the native macOS traffic-light buttons (hidden-inset title bar) so they don't sit on top of the logo. */}
-      <div className="h-7 shrink-0" style={{ "--wails-draggable": "drag" } as CSSProperties} />
+    <aside className={cn("flex h-full w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3 pb-4", isMac ? "pt-12" : "")}>
       <div className="flex items-center gap-2 px-1 pb-4">
         <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-[0_0_20px_-4px_var(--primary-glow)]">
           <GraphIcon weight="bold" className="size-4" />
@@ -57,13 +57,15 @@ export function AppSidebar({ view, onViewChange }: AppSidebarProps) {
           );
         })}
         {INERT_NAV_ITEMS.map(({ label, icon: Icon }) => (
-          <button
-            key={label}
-            className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground">
+          <button key={label} className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground">
             <Icon className="size-4" />
             {label}
           </button>
         ))}
+        <button onClick={onOpenSettings} className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground">
+          <SlidersIcon className="size-4" />
+          Settings
+        </button>
       </nav>
 
       <div className="mt-auto flex flex-col gap-3">

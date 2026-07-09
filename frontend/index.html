@@ -1,11 +1,20 @@
 <!doctype html>
-<html class="dark" lang="en">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>nodz</title>
+    <script>
+      // Applied before first paint so there's no flash of the wrong theme.
+      // Kept in sync with frontend/src/hooks/use-theme.ts, same storage key/logic.
+      (function () {
+        var stored = localStorage.getItem("nodz-theme");
+        var isDark = stored === "dark" || (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.toggle("dark", isDark);
+      })();
+    </script>
   </head>
-  <body class="h-screen w-full">
+  <body class="h-screen w-full antialiased select-none">
     <div id="root" class="h-full w-full"></div>
     <script src="./src/main.tsx" type="module"></script>
   </body>

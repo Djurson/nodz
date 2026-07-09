@@ -1,21 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { GraphCanvas, type GraphCanvasHandle } from "@/components/graph/graph-canvas";
+import { TreeCanvas } from "@/components/graph/tree-canvas";
 import { NodeDetailPanel } from "@/components/graph/node-detail-panel";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { BottomToolbar, type ToolMode } from "@/components/layout/bottom-toolbar";
 import { HistoryScrubber } from "@/components/layout/history-scrubber";
 import { TopBar } from "@/components/layout/top-bar";
+import { SettingsDialog } from "@/components/settings/settings-dialog";
 import { mockRepoGraph } from "@/data/mock-repo";
 import { findCircularPairs, sliceAtCommit } from "@/lib/repo-graph";
+import { DEFAULT_GRAPH_SETTINGS } from "@/types/graph-settings";
 import type { RepoNode } from "@/types/repo-graph";
 
-export type AppView = "graph" | "history";
+export type AppView = "visualize" | "history";
+export type VisualizeMode = "node" | "tree";
 
 function App() {
-  const [view, setView] = useState<AppView>("graph");
+  const [view, setView] = useState<AppView>("visualize");
+  const [visualizeMode, setVisualizeMode] = useState<VisualizeMode>("node");
+  const [settingDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [graphSettings, setGraphSettings] = useState(DEFAULT_GRAPH_SETTINGS);
   const [commitIndex, setCommitIndex] = useState(mockRepoGraph.commits.length - 1);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [tool, setTool] = useState<ToolMode>("select");
+  const [tool, setTool] = useState<ToolMode>("pan");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const graphRef = useRef<GraphCanvasHandle>(null);
 
@@ -50,17 +57,23 @@ function App() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
-      <AppSidebar view={view} onViewChange={setView} />
+      <AppSidebar view={view} onViewChange={setView} onOpenSettings={() => setSettingsDialogOpen(true)} />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar nodeCount={nodes.length} edgeCount={edges.length} />
+        <TopBar nodeCount={nodes.length} edgeCount={edges.length} view={view} visualizeMode={visualizeMode} onVisualizeModeChange={setVisualizeMode} />
 
-        <div className="dot-grid relative min-h-0 flex-1">
-          <GraphCanvas ref={graphRef} nodes={nodes} edges={edges} selectedId={selectedId} onSelectNode={(n) => setSelectedId(n?.id ?? null)} />
+        <div className="relative min-h-0 flex-1">
+          {visualizeMode === "tree" ? (
+            <TreeCanvas ref={graphRef} nodes={nodes} edges={edges} selectedId={selectedId} onSelectNode={(n) => setSelectedId(n?.id ?? null)} settings={graphSettings} />
+          ) : (
+            <GraphCanvas ref={graphRef} nodes={nodes} edges={edges} selectedId={selectedId} onSelectNode={(n) => setSelectedId(n?.id ?? null)} settings={graphSettings} />
+          )}
 
-          {selectedNode && <NodeDetailPanel node={selectedNode} edges={edges} nodesById={nodesById} isCircular={circular.has(selectedNode.id)} onSelectNode={(n) => setSelectedId(n.id)} onClose={() => setSelectedId(null)} />}
+          {selectedNode && (
+            <NodeDetailPanel node={selectedNode} edges={edges} nodesById={nodesById} isCircular={circular.has(selectedNode.id)} onSelectNode={(n) => setSelectedId(n.id)} onClose={() => setSelectedId(null)} />
+          )}
 
-          {view === "graph" ? (
+          {view === "visualize" ? (
             <BottomToolbar tool={tool} onToolChange={setTool} onFitView={() => graphRef.current?.fitView()} />
           ) : (
             <HistoryScrubber
@@ -81,6 +94,8 @@ function App() {
           )}
         </div>
       </div>
+
+      <SettingsDialog open={settingDialogOpen} onOpenChange={setSettingsDialogOpen} settings={graphSettings} onSettingsChange={setGraphSettings} />
     </div>
   );
 }
