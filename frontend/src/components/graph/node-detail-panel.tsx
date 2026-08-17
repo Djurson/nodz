@@ -84,11 +84,11 @@ function EdgeRow({ edge, otherId, nodesById, onSelectNode, reverse }: { edge: Re
   const other = nodesById.get(otherId);
   if (!other) return null;
   return (
-    <button onClick={() => onSelectNode(other)} className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs hover:bg-accent">
+    <Button variant="ghost" onClick={() => onSelectNode(other)} className="h-auto justify-start gap-1.5 rounded-md px-1.5 py-1 text-left text-xs hover:bg-accent">
       {reverse && <ArrowRightIcon className="size-3 shrink-0 rotate-180 text-muted-foreground" />}
       <span className="truncate">{other.label}</span>
       <span className="shrink-0 text-[10px] text-muted-foreground">{KIND_LABEL[edge.kind]}</span>
       {!reverse && <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground" />}
-    </button>
+    </Button>
   );
 }

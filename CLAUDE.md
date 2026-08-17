@@ -6,12 +6,16 @@ Engineering context for this repo. This file is ground truth for "what's actuall
 
 Nodz, a desktop app that visualizes a code repository's structure as an interactive node graph (files as nodes, imports/calls/class-usage as edges). Built with Wails v2 (Go backend + React/Vite/TS frontend in a single native window).
 
+## Default to pseudocode, not implementation
+
+Default response for any feature/change request is pseudocode or a description of the approach, not working code. Only write real, working code when explicitly told to (e.g. "develop it", "implement it", "build it"). This applies regardless of how detailed or "obviously buildable" the request sounds.
+
 ## Current implementation status
 
 **This is a frontend-only prototype running on mock data.** There is no analysis engine yet.
 
 - `app.go` exposes exactly one bound method: `Greet(name string) string`. That's the entire Go/frontend bridge today.
-- The graph, commit history, file list, everything the UI shows, comes from `frontend/src/data/mock-repo.ts`, a hand-authored fake repo ("acme/orbit", 36 files, 14 commits, 56 edges). It exists to prototype the UI/UX, not as a fixture for a real backend.
+- The graph, commit history, file list, everything the UI shows, comes from `frontend/src/lib/mock/repo-graph.ts`, a hand-authored fake repo ("acme/orbit", 36 files, 14 commits, 56 edges). It exists to prototype the UI/UX, not as a fixture for a real backend. All mock data in the frontend lives under `frontend/src/lib/mock/` (`repo-graph.ts`, `startup.ts`, `user.ts`), keep new mock data there rather than inline in components.
 - Nothing reads a real filesystem or `.git` directory yet.
 
 Don't write code that assumes a working analysis backend exists, it doesn't. Don't casually extend the mock dataset's shape without checking whether that shape still makes sense once real parsing exists.
@@ -21,12 +25,11 @@ Don't write code that assumes a working analysis backend exists, it doesn't. Don
 - **Repo scope: single repo per app instance.** The app points at one local repo path per launch. The sidebar's "acme/orbit" chip and "Back to repos" link are mock scaffolding from the prototype UI, not a committed multi-repo feature, don't build persistence/repo-switching on the assumption they are.
 - **Live updates: manual sync only.** No filesystem watcher, no git hooks. The user triggers a re-scan explicitly (e.g. a sync button). Do not add `fsnotify` or ambient watching.
 - **Parsing language scope: JS/TS/Go first**, other languages later. Multi-language from day one is not the plan, get these three working before generalizing.
+- **All four sidebar nav items are built out**: Visualize (graph), History (commit scrubber), Insights (hotspots/circular deps/largest files), Structure (file-type breakdown + folder tree), see `frontend/src/components/repository/insights-panel.tsx` / `structure-panel.tsx`. Insights/Structure run on the same mock repo graph as Visualize/History, not separate mock data. Settings is also built out (`frontend/src/components/settings/settings-dialog.tsx`): theme, label size, edge visibility, layout spread, base code directory.
 
 ## Open questions (not yet decided, ask before assuming)
 
 - **Parsing mechanism.** How the (future) Go backend will actually extract import/call/class-usage relationships is undecided, tree-sitter bindings, a language-specific parser per language, shelling out to existing tools (madge, dependency-cruiser, `go/ast`), or something else. Ask before implementing any of this.
-- Whether the "Insights" and "Structure" sidebar nav items (currently inert, no click handler) get built out or removed. "Settings" is now built out (opens a real dialog, theme, label size, edge visibility, layout spread, see `frontend/src/components/settings/settings-dialog.tsx`).
-- How "manual sync" will be wired from the frontend to a Go-side rescan (a bound Wails method presumably, but the method doesn't exist yet).
 
 ## Repo layout
 

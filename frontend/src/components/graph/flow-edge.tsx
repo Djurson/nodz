@@ -6,7 +6,7 @@ export type EdgeHighlight = "outgoing" | "incoming" | null;
 export interface OrthogonalEdgeData extends Record<string, unknown> {
   kind: EdgeKind;
   points: { x: number; y: number }[];
-  /** Source file's directory accent color (`var(--dir-N)`) — see `lib/dir-colors.ts`. */
+  /** Source file's directory accent color (`var(--dir-N)`), see `lib/dir-colors.ts`. */
   color: string;
   highlight?: EdgeHighlight;
 }
@@ -31,7 +31,7 @@ const ARROW_WIDTH = 3;
 
 /** Small triangle pointing along the final segment, since @xyflow's built-in SVG
  * <marker> defs render fill as a raw attribute rather than a styled one in some
- * versions — drawing it ourselves keeps arrowheads on the same var()-driven,
+ * versions, drawing it ourselves keeps arrowheads on the same var()-driven,
  * theme-reactive color path as the rest of this edge instead of a second code path. */
 function arrowheadPoints(points: { x: number; y: number }[]) {
   const end = points[points.length - 1];

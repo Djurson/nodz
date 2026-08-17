@@ -23,9 +23,7 @@ const DIR_PADDING = 14;
 
 const elk = new ELK();
 
-function fileNodeWidth(label: string) {
-  return Math.max(FILE_MIN_WIDTH, FILE_PAD_X * 2 + FILE_DOT_R * 2 + FILE_GAP + label.length * FILE_CHAR_WIDTH);
-}
+const fileNodeWidth = (label: string) => Math.max(FILE_MIN_WIDTH, FILE_PAD_X * 2 + FILE_DOT_R * 2 + FILE_GAP + label.length * FILE_CHAR_WIDTH);
 
 const dirElkId = (dirId: string) => `dir:${dirId}`;
 
@@ -56,8 +54,8 @@ interface Box {
 /**
  * elk's own start/end points for an edge declared above its endpoints' true container
  * (see the root-level-edges note below) land near the node's center rather than its
- * boundary. Force them onto the source's bottom-center / target's top-center — matching
- * the layered-DOWN direction — while keeping elk's inner bend points so the route still
+ * boundary. Force them onto the source's bottom-center / target's top-center, matching
+ * the layered-DOWN direction, while keeping elk's inner bend points so the route still
  * dodges whatever elk routed it around; a stub point is inserted on each end so every
  * segment stays axis-aligned (no diagonal introduced by snapping only one coordinate).
  */
@@ -79,12 +77,12 @@ function snapToNodeBounds(rawPoints: ElkPoint[], sourceBox: Box, targetBox: Box)
 
 /**
  * Lays out the repo as a directory-compound DAG via elk's layered algorithm with
- * orthogonal edge routing — deterministic, no physics. All edges are declared on the
+ * orthogonal edge routing, deterministic, no physics. All edges are declared on the
  * root elk graph (rather than at each edge's true lowest-common-ancestor container),
  * which elk's `INCLUDE_CHILDREN` hierarchy mode permits; the payoff is that every edge
  * section elk returns comes back in the root's coordinate space, so those points can be
  * used directly as absolute canvas coordinates for the custom edge renderer without
- * having to walk and sum ancestor offsets ourselves — the tradeoff is elk anchors the
+ * having to walk and sum ancestor offsets ourselves, the tradeoff is elk anchors the
  * endpoints near node center (see `snapToNodeBounds`), which we correct afterward.
  */
 export async function layoutRepoTree(nodes: RepoNode[], edges: RepoEdge[]): Promise<TreeLayout> {

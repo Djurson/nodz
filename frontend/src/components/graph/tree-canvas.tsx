@@ -3,7 +3,7 @@ import { Background, ReactFlow, ReactFlowProvider, useReactFlow, type EdgeTypes,
 import "@xyflow/react/dist/style.css";
 import type { RepoEdge, RepoNode } from "@/types/repo-graph";
 import type { GraphSettings } from "@/types/graph-settings";
-import type { GraphCanvasHandle } from "@/components/graph/graph-canvas";
+import type { GraphCanvasHandle } from "@/views/panels/repository/graph-panel";
 import { layoutRepoTree, type TreeLayout } from "@/lib/elk-tree-layout";
 import { FlowFileNode, type FileNodeData } from "@/components/graph/flow-node";
 import { FlowDirectoryNode } from "@/components/graph/flow-directory";

@@ -1,6 +1,6 @@
 import { PauseIcon, PlayIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { Slider } from "@/components/ui/slider";
 import type { RepoCommit } from "@/types/repo-graph";
 
 interface HistoryScrubberProps {
@@ -27,15 +27,7 @@ export function HistoryScrubber({ commits, commitIndex, onCommitIndexChange, isP
         <Button size="icon-sm" variant={isPlaying ? "secondary" : "ghost"} aria-label="Replay history" onClick={onTogglePlay}>
           {isPlaying ? <PauseIcon className="size-4" /> : <PlayIcon className="size-4" />}
         </Button>
-        <input
-          type="range"
-          min={0}
-          max={commits.length - 1}
-          step={1}
-          value={commitIndex}
-          onChange={(e) => onCommitIndexChange(Number(e.target.value))}
-          className={cn("h-1.5 w-64 cursor-pointer appearance-none rounded-full bg-secondary accent-primary")}
-        />
+        <Slider value={[commitIndex]} min={0} max={commits.length - 1} step={1} onValueChange={(v) => onCommitIndexChange(Array.isArray(v) ? v[0] : v)} className="w-64" />
         <span className="w-10 shrink-0 font-mono text-[11px] text-muted-foreground">
           {commitIndex + 1}/{commits.length}
         </span>

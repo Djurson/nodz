@@ -5,8 +5,7 @@ import type { RepoEdge, RepoNode } from "@/types/repo-graph";
 import { computeDegree, findCircularPairs } from "@/lib/repo-graph";
 import { LABEL_SIZE_SCALE } from "@/types/graph-settings";
 import type { GraphSettings } from "@/types/graph-settings";
-import { drawNodeCard, drawNodeHitArea } from "./graph-node";
-import type { ResolveColor, FgNode } from "./graph-node";
+import { drawNodeCard, drawNodeHitArea, FgNode, ResolveColor } from "@/components/graph/graph-node";
 
 interface GraphCanvasProps {
   nodes: RepoNode[];
